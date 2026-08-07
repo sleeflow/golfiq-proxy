@@ -1,0 +1,21 @@
+{
+  "name": "golfiq-proxy",
+  "version": "1.0.0",
+  "description": "Secure backend proxy for Caddie Edge IQ - forwards requests to Anthropic API without exposing the API key to the iPhone app.",
+  "main": "server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.32.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.1",
+    "express-rate-limit": "^7.4.1"
+  }
+}
