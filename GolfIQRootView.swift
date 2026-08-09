@@ -1083,12 +1083,14 @@ struct PlayerProfile {
     var missDirection: String
     var clubDistances: [String: Int]
 
-    static let clubOrder = ["Driver","3-Wood","5-Wood","Hybrid",
+    static let clubOrder = ["Driver","3-Wood","5-Wood",
+        "3-Hybrid","4-Hybrid","5-Hybrid","6-Hybrid",
         "3-Iron","4-Iron","5-Iron","6-Iron","7-Iron","8-Iron","9-Iron",
         "PW","GW","SW","LW"]
 
     static let defaultClubDistances: [String: Int] = [
-        "Driver": 245, "3-Wood": 220, "5-Wood": 205, "Hybrid": 195,
+        "Driver": 245, "3-Wood": 220, "5-Wood": 205,
+        "3-Hybrid": 0, "4-Hybrid": 0, "5-Hybrid": 0, "6-Hybrid": 0,
         "3-Iron": 190, "4-Iron": 180, "5-Iron": 170, "6-Iron": 160,
         "7-Iron": 150, "8-Iron": 140, "9-Iron": 130,
         "PW": 120, "GW": 105, "SW": 90, "LW": 75
@@ -1191,7 +1193,7 @@ class CaddyService: ObservableObject {
         }
 
         let bagLines = PlayerProfile.clubOrder.compactMap { club -> String? in
-            guard let yards = player.clubDistances[club] else { return nil }
+            guard let yards = player.clubDistances[club], yards > 0 else { return nil }
             return "\(club): \(yards) yds"
         }.joined(separator: ", ")
 
@@ -1795,6 +1797,13 @@ struct CaddyView: View {
                 let lat = locationManager.location?.coordinate.latitude ?? defaultLat
                 let lon = locationManager.location?.coordinate.longitude ?? defaultLon
                 Task { await weatherService.fetchWeather(lat: lat, lon: lon) }
+                // Sync hole yardage/par from the selected course right away,
+                // in case a course was already chosen before this screen appeared
+                if let course = selectedCourse,
+                   let h = course.holes.first(where: { $0.id == hole.holeNumber }) {
+                    hole.par = h.par
+                    hole.distanceToPin = h.yards
+                }
             }
             .onChange(of: selectedCourse?.id) { _, _ in
                 // When course changes, load hole 1 data automatically
@@ -2770,18 +2779,22 @@ struct ProfileView: View {
                     .onChange(of: player.missDirection) { _, _ in player.save() }
                 }
                 Section("My Clubs (yards)") {
+                    Text("Set to 0 for any club you don't carry")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                     ForEach(PlayerProfile.clubOrder, id: \.self) { club in
                         HStack {
                             Text(club).frame(width: 70, alignment: .leading)
                             Stepper(
                                 value: Binding(
-                                    get: { player.clubDistances[club] ?? PlayerProfile.defaultClubDistances[club] ?? 100 },
+                                    get: { player.clubDistances[club] ?? PlayerProfile.defaultClubDistances[club] ?? 0 },
                                     set: { player.clubDistances[club] = $0; player.save() }
                                 ),
-                                in: 30...350, step: 5
+                                in: 0...350, step: 5
                             ) {
-                                Text("\(player.clubDistances[club] ?? PlayerProfile.defaultClubDistances[club] ?? 100) yds")
-                                    .foregroundColor(.secondary)
+                                let yards = player.clubDistances[club] ?? PlayerProfile.defaultClubDistances[club] ?? 0
+                                Text(yards == 0 ? "Not in bag" : "\(yards) yds")
+                                    .foregroundColor(yards == 0 ? .secondary.opacity(0.6) : .secondary)
                             }
                         }
                     }
