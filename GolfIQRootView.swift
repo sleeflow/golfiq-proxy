@@ -1080,21 +1080,42 @@ struct CourseInfoBanner: View {
 struct PlayerProfile {
     var name: String
     var handicap: Double
-    var driverDistance: Int
     var missDirection: String
+    var clubDistances: [String: Int]
+
+    static let clubOrder = ["Driver","3-Wood","5-Wood","Hybrid",
+        "3-Iron","4-Iron","5-Iron","6-Iron","7-Iron","8-Iron","9-Iron",
+        "PW","GW","SW","LW"]
+
+    static let defaultClubDistances: [String: Int] = [
+        "Driver": 245, "3-Wood": 220, "5-Wood": 205, "Hybrid": 195,
+        "3-Iron": 190, "4-Iron": 180, "5-Iron": 170, "6-Iron": 160,
+        "7-Iron": 150, "8-Iron": 140, "9-Iron": 130,
+        "PW": 120, "GW": 105, "SW": 90, "LW": 75
+    ]
+
     static var sample: PlayerProfile {
-        PlayerProfile(
+        let storedClubs: [String: Int]
+        if let data = UserDefaults.standard.data(forKey: "player_clubs"),
+           let decoded = try? JSONDecoder().decode([String: Int].self, from: data) {
+            storedClubs = decoded
+        } else {
+            storedClubs = defaultClubDistances
+        }
+        return PlayerProfile(
             name: UserDefaults.standard.string(forKey: "player_name") ?? "Sammy",
             handicap: UserDefaults.standard.double(forKey: "player_handicap") == 0 ? 14.2 : UserDefaults.standard.double(forKey: "player_handicap"),
-            driverDistance: UserDefaults.standard.integer(forKey: "player_driver") == 0 ? 245 : UserDefaults.standard.integer(forKey: "player_driver"),
-            missDirection: UserDefaults.standard.string(forKey: "player_miss") ?? "Right"
+            missDirection: UserDefaults.standard.string(forKey: "player_miss") ?? "Right",
+            clubDistances: storedClubs
         )
     }
     func save() {
         UserDefaults.standard.set(name, forKey: "player_name")
         UserDefaults.standard.set(handicap, forKey: "player_handicap")
-        UserDefaults.standard.set(driverDistance, forKey: "player_driver")
         UserDefaults.standard.set(missDirection, forKey: "player_miss")
+        if let encoded = try? JSONEncoder().encode(clubDistances) {
+            UserDefaults.standard.set(encoded, forKey: "player_clubs")
+        }
     }
 }
 
@@ -1158,12 +1179,6 @@ class CaddyService: ObservableObject {
             courseSection = "COURSE: Unknown — advise on general principles"
         }
 
-        let altitudeNote: String
-        if let course = course, ["Albuquerque","Bernalillo","Tijeras","Santa Ana Pueblo",
-           "Santa Fe","Pojoaque","La Mesilla","Farmington","Taos","Durango"].contains(where: { course.city.contains($0) }) {
-            altitudeNote = "ALTITUDE: 5,000-7,500 ft elevation — ball flies 8-12% farther than sea level."
-        } else { altitudeNote = "" }
-
         let courseHandicap = course.map { Int((player.handicap * Double($0.slope) / 113.0).rounded()) } ?? Int(player.handicap.rounded())
         let handicapContext = course != nil ? "Course handicap here: ~\(courseHandicap)" : "Handicap index: \(String(format: "%.1f", player.handicap))"
 
@@ -1175,27 +1190,30 @@ class CaddyService: ObservableObject {
         default: missRisk = "Generally straight"
         }
 
+        let bagLines = PlayerProfile.clubOrder.compactMap { club -> String? in
+            guard let yards = player.clubDistances[club] else { return nil }
+            return "\(club): \(yards) yds"
+        }.joined(separator: ", ")
+
         return """
-        You are an experienced golf caddy — direct, practical, course-smart. Give advice a real caddy would give on the course.
+        You are an experienced golf caddy — direct, practical, course-smart. Give advice a real caddy would give on the course. Use the player's actual club distances below to recommend one specific club by name — don't just describe a club type.
 
         \(courseSection)
 
         PLAYER: \(player.name)
         - \(handicapContext)
-        - Driver: \(player.driverDistance) yds (sea level)
         - Miss: \(player.missDirection) — \(missRisk)
-
-        \(altitudeNote)
+        - Club distances: \(bagLines)
 
         HOLE \(hole.holeNumber) — Par \(hole.par):
         - Distance: \(hole.distanceToPin) yards
         - Lie: \(hole.lie)
+        - Elevation: \(hole.elevation) shot — \(hole.elevation == "Uphill" ? "plays about 5-10 yards LONGER than the flat yardage" : hole.elevation == "Downhill" ? "plays about 5-10 yards SHORTER than the flat yardage" : "no adjustment needed")
         - Wind: \(hole.wind)\(hole.windSpeed > 0 ? " at \(hole.windSpeed) mph" : "")
-        - Elevation: \(hole.elevation)
         - Hazards: \(hole.hazards)
 
         Respond with exactly these four items, 1-2 sentences each:
-        🏌️ CLUB: Which club and why (account for altitude, wind, lie, elevation)
+        🏌️ CLUB: Name the exact club from the player's bag above that best fits the effective distance after adjusting for elevation (+/- 5-10 yards as noted above), wind, and lie, e.g. "7-Iron"
         🎯 AIM: Exact target, bail-out zone, and where to miss if the shot goes wrong — be specific (e.g. miss right, short is safe, avoid the left bunker)
         ✋ SHOT: Shape or trajectory and why it fits the conditions
         ⚠️ AVOID: The one mistake that blows this hole up and how to prevent it
@@ -1903,6 +1921,208 @@ struct HoleSetupView: View {
 }
 
 
+// MARK: - Round History
+
+struct HoleTipRecord: Codable {
+    var scoreLabel: String
+    var quote: String
+    var streakLabel: String?
+    var streakQuote: String?
+}
+
+struct SavedRound: Codable, Identifiable {
+    var id = UUID()
+    var date: Date
+    var courseName: String
+    var courseCity: String
+    var pars: [Int]
+    var scores: [Int]
+    var holeTips: [Int: HoleTipRecord] = [:]
+    var isPlanned: Bool = false
+
+    var holesPlayed: Int { scores.filter { $0 > 0 }.count }
+    var totalScore: Int { scores.filter { $0 > 0 }.reduce(0, +) }
+    var parPlayed: Int {
+        var total = 0
+        for i in 0..<scores.count where i < pars.count && scores[i] > 0 { total += pars[i] }
+        return total
+    }
+    var scoreToPar: Int { totalScore - parPlayed }
+    var scoreToParLabel: String {
+        scoreToPar == 0 ? "E" : scoreToPar > 0 ? "+\(scoreToPar)" : "\(scoreToPar)"
+    }
+    var dateLabel: String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        return formatter.string(from: date)
+    }
+}
+
+class RoundHistoryStore: ObservableObject {
+    @Published var rounds: [SavedRound] = []
+    private let storageKey = "saved_rounds"
+
+    init() { load() }
+
+    func load() {
+        guard let data = UserDefaults.standard.data(forKey: storageKey),
+              let decoded = try? JSONDecoder().decode([SavedRound].self, from: data) else {
+            rounds = []
+            return
+        }
+        rounds = decoded.sorted { $0.date > $1.date }
+    }
+
+    func save(_ round: SavedRound) {
+        rounds.insert(round, at: 0)
+        persist()
+    }
+
+    func delete(at offsets: IndexSet) {
+        rounds.remove(atOffsets: offsets)
+        persist()
+    }
+
+    private func persist() {
+        if let encoded = try? JSONEncoder().encode(rounds) {
+            UserDefaults.standard.set(encoded, forKey: storageKey)
+        }
+    }
+}
+
+struct RoundHistoryView: View {
+    @ObservedObject var store: RoundHistoryStore
+
+    var body: some View {
+        Group {
+            if store.rounds.isEmpty {
+                VStack(spacing: 12) {
+                    Image(systemName: "clock.arrow.circlepath")
+                        .font(.system(size: 40))
+                        .foregroundColor(.secondary)
+                    Text("No saved rounds yet")
+                        .font(.headline)
+                        .foregroundColor(.secondary)
+                    Text("Finish a round and tap Save to see it here.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 40)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                List {
+                    ForEach(store.rounds) { round in
+                        NavigationLink(destination: RoundHistoryDetailView(round: round)) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack {
+                                    Text(round.courseName).font(.headline)
+                                    if round.isPlanned {
+                                        Text("PRACTICE")
+                                            .font(.caption2).fontWeight(.bold)
+                                            .padding(.horizontal, 6).padding(.vertical, 2)
+                                            .background(Color.orange.opacity(0.2))
+                                            .foregroundColor(.orange)
+                                            .cornerRadius(4)
+                                    }
+                                    Spacer()
+                                    Text("\(round.totalScore) (\(round.scoreToParLabel))")
+                                        .font(.headline)
+                                        .foregroundColor(round.scoreToPar <= 0 ? GolfIQBrand.accent : .primary)
+                                }
+                                HStack {
+                                    Text(round.dateLabel).font(.caption).foregroundColor(.secondary)
+                                    Spacer()
+                                    Text("\(round.holesPlayed) holes").font(.caption).foregroundColor(.secondary)
+                                }
+                            }
+                            .padding(.vertical, 4)
+                        }
+                    }
+                    .onDelete(perform: store.delete)
+                }
+            }
+        }
+        .navigationTitle("Round History")
+    }
+}
+
+struct RoundHistoryDetailView: View {
+    let round: SavedRound
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 0) {
+                if round.isPlanned {
+                    Text("PRACTICE SESSION — Not a live round")
+                        .font(.caption).fontWeight(.bold)
+                        .padding(.horizontal, 10).padding(.vertical, 6)
+                        .background(Color.orange.opacity(0.2))
+                        .foregroundColor(.orange)
+                        .cornerRadius(6)
+                        .padding(.top, 8)
+                }
+                HStack {
+                    scoreCell("Score", "\(round.totalScore)")
+                    Divider().frame(height: 40)
+                    scoreCell("To Par", round.scoreToParLabel,
+                        color: round.scoreToPar < 0 ? .red : round.scoreToPar == 0 ? .primary : .blue)
+                    Divider().frame(height: 40)
+                    scoreCell("Holes", "\(round.holesPlayed)/18")
+                }
+                .padding()
+
+                VStack(spacing: 0) {
+                    ForEach(0..<round.scores.count, id: \.self) { i in
+                        if round.scores[i] > 0 {
+                            VStack(alignment: .leading, spacing: 6) {
+                                HStack {
+                                    Text("Hole \(i+1)").font(.subheadline)
+                                    Text("Par \(i < round.pars.count ? round.pars[i] : 4)")
+                                        .font(.caption).foregroundColor(.secondary)
+                                    Spacer()
+                                    Text("\(round.scores[i])")
+                                        .font(.title3).fontWeight(.bold)
+                                }
+                                if let tip = round.holeTips[i] {
+                                    HStack(alignment: .top, spacing: 6) {
+                                        Image(systemName: "quote.bubble.fill")
+                                            .font(.caption2)
+                                            .foregroundColor(GolfIQBrand.accent)
+                                        VStack(alignment: .leading, spacing: 4) {
+                                            Text("\(tip.scoreLabel): \(tip.quote)")
+                                                .font(.caption)
+                                                .foregroundColor(.secondary)
+                                            if let streakLabel = tip.streakLabel, let streakQuote = tip.streakQuote {
+                                                Text("\(streakLabel): \(streakQuote)")
+                                                    .font(.caption)
+                                                    .foregroundColor(GolfIQBrand.accent)
+                                            }
+                                        }
+                                    }
+                                    .padding(.top, 2)
+                                }
+                            }
+                            .padding(.horizontal)
+                            .padding(.vertical, 10)
+                            Divider().padding(.horizontal)
+                        }
+                    }
+                }
+            }
+        }
+        .navigationTitle(round.courseName)
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    func scoreCell(_ label: String, _ value: String, color: Color = .primary) -> some View {
+        VStack {
+            Text(value).font(.title).fontWeight(.bold).foregroundColor(color)
+            Text(label).font(.caption).foregroundColor(.secondary)
+        }.frame(maxWidth: .infinity)
+    }
+}
+
 // MARK: - Round View
 
 struct RoundView: View {
@@ -1916,6 +2136,10 @@ struct RoundView: View {
     @State private var currentStreakLabel = ""
     @State private var currentLabel = ""
     @State private var currentColor: Color = GolfIQBrand.accent
+    @StateObject private var historyStore = RoundHistoryStore()
+    @State private var showSavedConfirmation = false
+    @State private var holeTips: [Int: HoleTipRecord] = [:]
+    @State private var isPlanningMode = false
 
     var pars: [Int] { selectedCourse?.holes.map { $0.par } ?? [4,4,3,5,4,4,3,5,4,4,4,3,5,4,4,3,5,4] }
     var holesPlayed: Int { scores.filter { $0 > 0 }.count }
@@ -1931,6 +2155,26 @@ struct RoundView: View {
         NavigationView {
             ZStack {
                 VStack(spacing: 0) {
+                    // Mode Toggle — Live Round vs Planning
+                    Picker("Mode", selection: $isPlanningMode) {
+                        Text("Live Round").tag(false)
+                        Text("Practice").tag(true)
+                    }
+                    .pickerStyle(.segmented)
+                    .padding(.horizontal)
+                    .padding(.top, 10)
+
+                    if isPlanningMode {
+                        HStack {
+                            Image(systemName: "pencil.and.outline")
+                                .font(.caption)
+                            Text("Practice Mode — this session won't count as a real round")
+                                .font(.caption)
+                        }
+                        .foregroundColor(.orange)
+                        .padding(.top, 6)
+                    }
+
                     // Score Header
                     HStack {
                         scoreCell("Score", holesPlayed == 0 ? "-" : "\(totalScore)")
@@ -1975,11 +2219,7 @@ struct RoundView: View {
                                         }
                                         .disabled(scores[i] == 0)
 
-                                        Text(scores[i] > 0 ? "\(scores[i])" : "-")
-                                            .font(.title3)
-                                            .fontWeight(.bold)
-                                            .frame(width: 36)
-                                            .foregroundColor(scoreColorInt(scores[i], pars[i]))
+                                        scoreDisplay(scores[i], pars[i])
 
                                         Button(action: {
                                             if scores[i] == 0 { scores[i] = pars[i] }
@@ -1994,7 +2234,7 @@ struct RoundView: View {
                                         if scores[i] > 0 {
                                             Button(action: {
                                                 let finalScore = scores[i]
-                                                showTip(score: finalScore, par: pars[i])
+                                                showTip(score: finalScore, par: pars[i], holeIndex: i)
                                             }) {
                                                 Text("Done")
                                                     .font(.caption)
@@ -2014,12 +2254,41 @@ struct RoundView: View {
                         }
                     }
                     .toolbar {
-                        ToolbarItem(placement: .navigationBarTrailing) {
-                            Button("New Round") {
-                                scores = Array(repeating: 0, count: 18)
-                                mentalGame.resetRound()
-                            }.foregroundColor(GolfIQBrand.accent)
+                        ToolbarItem(placement: .navigationBarLeading) {
+                            NavigationLink(destination: RoundHistoryView(store: historyStore)) {
+                                Image(systemName: "clock.arrow.circlepath")
+                            }
                         }
+                        ToolbarItem(placement: .navigationBarTrailing) {
+                            HStack(spacing: 16) {
+                                if holesPlayed > 0 {
+                                    Button("Save") {
+                                        let round = SavedRound(
+                                            date: Date(),
+                                            courseName: selectedCourse?.name ?? "Unknown Course",
+                                            courseCity: selectedCourse?.city ?? "",
+                                            pars: pars,
+                                            scores: scores,
+                                            holeTips: holeTips,
+                                            isPlanned: isPlanningMode
+                                        )
+                                        historyStore.save(round)
+                                        showSavedConfirmation = true
+                                    }.foregroundColor(GolfIQBrand.accent)
+                                }
+                                Button("New Round") {
+                                    scores = Array(repeating: 0, count: 18)
+                                    holeTips = [:]
+                                    isPlanningMode = false
+                                    mentalGame.resetRound()
+                                }.foregroundColor(GolfIQBrand.accent)
+                            }
+                        }
+                    }
+                    .alert("Round Saved", isPresented: $showSavedConfirmation) {
+                        Button("OK", role: .cancel) { }
+                    } message: {
+                        Text("You can find it under Round History.")
                     }
                 }
 
@@ -2042,7 +2311,7 @@ struct RoundView: View {
         }
     }
 
-    func showTip(score: Int, par: Int) {
+    func showTip(score: Int, par: Int, holeIndex: Int) {
         let diff = score - par
         currentTip = mentalGame.tipForScore(score: score, par: par)
         switch diff {
@@ -2083,6 +2352,14 @@ struct RoundView: View {
                 currentStreakLabel = "🚨 Reset Right Now"
             }
         }
+        if let tip = currentTip {
+            holeTips[holeIndex] = HoleTipRecord(
+                scoreLabel: currentLabel,
+                quote: tip.quote,
+                streakLabel: currentStreakTip != nil ? currentStreakLabel : nil,
+                streakQuote: currentStreakTip?.quote
+            )
+        }
         withAnimation { showMentalTip = true }
     }
 
@@ -2098,6 +2375,38 @@ struct RoundView: View {
         switch s - par {
         case ...(-2): return .yellow; case -1: return .red
         case 0: return .primary; case 1: return .blue; default: return .gray
+        }
+    }
+
+    @ViewBuilder
+    func scoreDisplay(_ score: Int, _ par: Int) -> some View {
+        if score == 0 {
+            Text("-")
+                .font(.title3).fontWeight(.bold)
+                .frame(width: 36, height: 36)
+                .foregroundColor(.secondary)
+        } else {
+            let diff = score - par
+            ZStack {
+                switch diff {
+                case ...(-2):
+                    Circle().stroke(Color.red, lineWidth: 1.5).frame(width: 34, height: 34)
+                    Circle().stroke(Color.red, lineWidth: 1.5).frame(width: 25, height: 25)
+                case -1:
+                    Circle().stroke(Color.red, lineWidth: 1.5).frame(width: 30, height: 30)
+                case 1:
+                    Rectangle().stroke(Color.white, lineWidth: 1.5).frame(width: 27, height: 27)
+                case 2:
+                    Rectangle().stroke(Color.white, lineWidth: 1.5).frame(width: 34, height: 34)
+                    Rectangle().stroke(Color.white, lineWidth: 1.5).frame(width: 25, height: 25)
+                default:
+                    EmptyView()
+                }
+                Text("\(score)")
+                    .font(.title3).fontWeight(.bold)
+                    .foregroundColor(.white)
+            }
+            .frame(width: 36, height: 36)
         }
     }
 
@@ -2452,15 +2761,6 @@ struct ProfileView: View {
                             .accentColor(GolfIQBrand.accent)
                             .onChange(of: player.handicap) { _, _ in player.save() }
                     }
-                    VStack(alignment: .leading) {
-                        Text("Driver Distance: \(player.driverDistance) yards")
-                        Slider(value: Binding(
-                            get: { Double(player.driverDistance) },
-                            set: { player.driverDistance = Int($0) }
-                        ), in: 150...350, step: 5)
-                        .accentColor(GolfIQBrand.accent)
-                        .onChange(of: player.driverDistance) { _, _ in player.save() }
-                    }
                 }
                 Section("Typical Miss") {
                     Picker("Miss", selection: $player.missDirection) {
@@ -2468,6 +2768,23 @@ struct ProfileView: View {
                     }
                     .pickerStyle(.segmented)
                     .onChange(of: player.missDirection) { _, _ in player.save() }
+                }
+                Section("My Clubs (yards)") {
+                    ForEach(PlayerProfile.clubOrder, id: \.self) { club in
+                        HStack {
+                            Text(club).frame(width: 70, alignment: .leading)
+                            Stepper(
+                                value: Binding(
+                                    get: { player.clubDistances[club] ?? PlayerProfile.defaultClubDistances[club] ?? 100 },
+                                    set: { player.clubDistances[club] = $0; player.save() }
+                                ),
+                                in: 30...350, step: 5
+                            ) {
+                                Text("\(player.clubDistances[club] ?? PlayerProfile.defaultClubDistances[club] ?? 100) yds")
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                    }
                 }
                 Section("How is Caddie Edge IQ working for you?") {
                     VStack(alignment: .leading, spacing: 12) {
