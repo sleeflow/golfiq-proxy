@@ -1208,7 +1208,7 @@ class CaddyService: ObservableObject {
         - Club distances: \(bagLines)
 
         HOLE \(hole.holeNumber) — Par \(hole.par):
-        - Distance: \(hole.distanceToPin) yards
+        - Distance remaining to the pin for THIS shot: \(hole.distanceToPin) yards (this is the player's current distance for whatever shot they're about to hit right now — it could be their tee shot, or a much shorter approach/recovery shot after already playing earlier shots on this hole. A short number on a high-par hole is completely normal and expected — it does NOT mean an error, so don't second-guess or flag the yardage.)
         - Lie: \(hole.lie)
         - Elevation: \(hole.elevation) shot — \(hole.elevation == "Uphill" ? "plays about 5-10 yards LONGER than the flat yardage" : hole.elevation == "Downhill" ? "plays about 5-10 yards SHORTER than the flat yardage" : "no adjustment needed")
         - Wind: \(hole.wind)\(hole.windSpeed > 0 ? " at \(hole.windSpeed) mph" : "")
@@ -1316,6 +1316,7 @@ struct ScoreMentalTipView: View {
 struct PuttingSelectionView: View {
     @Binding var showPuttingTip: Bool
     @Binding var currentPuttingTip: MentalTip?
+    var holeNumber: Int
     @Environment(\.dismiss) var dismiss
 
     let categories: [(title: String, subtitle: String, icon: String, tips: [MentalTip])] = [
@@ -1338,7 +1339,11 @@ struct PuttingSelectionView: View {
             VStack(spacing: 10) {
                 ForEach(categories, id: \.title) { cat in
                     Button(action: {
-                        currentPuttingTip = cat.tips.randomElement()
+                        let tip = cat.tips.randomElement()
+                        currentPuttingTip = tip
+                        if let tip = tip {
+                            PuttingTipSession.shared.tipsByHole[holeNumber] = (label: cat.title, quote: tip.quote)
+                        }
                         dismiss()
                         showPuttingTip = true
                     }) {
@@ -1474,7 +1479,7 @@ struct CaddyView: View {
                 VStack(spacing: 16) {
                     HStack {
                         Image(systemName: "figure.golf").foregroundColor(GolfIQBrand.accent)
-                        Text("On the course. In the game.")
+                        Text("Showtime! In the game!")
                             .font(.system(size: 14, weight: .semibold, design: .serif))
                             .foregroundColor(GolfIQBrand.accent)
                         Spacer()
@@ -1777,7 +1782,7 @@ struct CaddyView: View {
             .sheet(isPresented: $showSetup) { HoleSetupView(hole: $hole, course: selectedCourse) }
             .sheet(isPresented: $showCourseList) { CourseListView(selectedCourse: $selectedCourse) }
             .sheet(isPresented: $showPuttingSelection) {
-                PuttingSelectionView(showPuttingTip: $showPuttingTipPopup, currentPuttingTip: $currentPuttingTip)
+                PuttingSelectionView(showPuttingTip: $showPuttingTipPopup, currentPuttingTip: $currentPuttingTip, holeNumber: hole.holeNumber)
                     .presentationDetents([.medium])
             }
             .overlay {
@@ -1937,6 +1942,8 @@ struct HoleTipRecord: Codable {
     var quote: String
     var streakLabel: String?
     var streakQuote: String?
+    var puttingLabel: String?
+    var puttingQuote: String?
 }
 
 struct SavedRound: Codable, Identifiable {
@@ -1965,6 +1972,13 @@ struct SavedRound: Codable, Identifiable {
         formatter.dateStyle = .medium
         return formatter.string(from: date)
     }
+}
+
+// Shared across tabs so a putting tip picked on the Caddie Edge tab
+// can be included when a round is saved from the Round tab
+class PuttingTipSession: ObservableObject {
+    static let shared = PuttingTipSession()
+    @Published var tipsByHole: [Int: (label: String, quote: String)] = [:]
 }
 
 class RoundHistoryStore: ObservableObject {
@@ -2090,8 +2104,7 @@ struct RoundHistoryDetailView: View {
                                     Text("Par \(i < round.pars.count ? round.pars[i] : 4)")
                                         .font(.caption).foregroundColor(.secondary)
                                     Spacer()
-                                    Text("\(round.scores[i])")
-                                        .font(.title3).fontWeight(.bold)
+                                    historyScoreDisplay(round.scores[i], i < round.pars.count ? round.pars[i] : 4)
                                 }
                                 if let tip = round.holeTips[i] {
                                     HStack(alignment: .top, spacing: 6) {
@@ -2106,6 +2119,11 @@ struct RoundHistoryDetailView: View {
                                                 Text("\(streakLabel): \(streakQuote)")
                                                     .font(.caption)
                                                     .foregroundColor(GolfIQBrand.accent)
+                                            }
+                                            if let puttingLabel = tip.puttingLabel, let puttingQuote = tip.puttingQuote {
+                                                Text("⛳ \(puttingLabel): \(puttingQuote)")
+                                                    .font(.caption)
+                                                    .foregroundColor(.blue)
                                             }
                                         }
                                     }
@@ -2129,6 +2147,31 @@ struct RoundHistoryDetailView: View {
             Text(value).font(.title).fontWeight(.bold).foregroundColor(color)
             Text(label).font(.caption).foregroundColor(.secondary)
         }.frame(maxWidth: .infinity)
+    }
+
+    @ViewBuilder
+    func historyScoreDisplay(_ score: Int, _ par: Int) -> some View {
+        let diff = score - par
+        ZStack {
+            switch diff {
+            case ...(-2):
+                Circle().stroke(Color.red, lineWidth: 1.5).frame(width: 34, height: 34)
+                Circle().stroke(Color.red, lineWidth: 1.5).frame(width: 25, height: 25)
+            case -1:
+                Circle().stroke(Color.red, lineWidth: 1.5).frame(width: 30, height: 30)
+            case 1:
+                Rectangle().stroke(Color.white, lineWidth: 1.5).frame(width: 27, height: 27)
+            case 2:
+                Rectangle().stroke(Color.white, lineWidth: 1.5).frame(width: 34, height: 34)
+                Rectangle().stroke(Color.white, lineWidth: 1.5).frame(width: 25, height: 25)
+            default:
+                EmptyView()
+            }
+            Text("\(score)")
+                .font(.title3).fontWeight(.bold)
+                .foregroundColor(.white)
+        }
+        .frame(width: 36, height: 36)
     }
 }
 
@@ -2272,22 +2315,54 @@ struct RoundView: View {
                             HStack(spacing: 16) {
                                 if holesPlayed > 0 {
                                     Button("Save") {
+                                        // Backfill a tip for any scored hole that never had
+                                        // "Done" tapped, so history is always complete
+                                        var completeTips = holeTips
+                                        for i in 0..<scores.count where scores[i] > 0 && completeTips[i] == nil {
+                                            let tip = mentalGame.tipForScore(score: scores[i], par: pars[i])
+                                            let diff = scores[i] - pars[i]
+                                            let label: String
+                                            switch diff {
+                                            case ...(-2): label = "Eagle or Better!"
+                                            case -1:      label = "Birdie!"
+                                            case 0:       label = "Par"
+                                            case 1:       label = "Bogey"
+                                            case 2:       label = "Double Bogey"
+                                            default:      label = "Shake it off"
+                                            }
+                                            completeTips[i] = HoleTipRecord(scoreLabel: label, quote: tip.quote)
+                                        }
+                                        // Merge in any putting cues picked on the Caddie Edge tab for these holes
+                                        for i in 0..<scores.count {
+                                            guard let putt = PuttingTipSession.shared.tipsByHole[i + 1] else { continue }
+                                            if completeTips[i] != nil {
+                                                completeTips[i]?.puttingLabel = putt.label
+                                                completeTips[i]?.puttingQuote = putt.quote
+                                            } else {
+                                                completeTips[i] = HoleTipRecord(
+                                                    scoreLabel: "—", quote: "",
+                                                    puttingLabel: putt.label, puttingQuote: putt.quote
+                                                )
+                                            }
+                                        }
                                         let round = SavedRound(
                                             date: Date(),
                                             courseName: selectedCourse?.name ?? "Unknown Course",
                                             courseCity: selectedCourse?.city ?? "",
                                             pars: pars,
                                             scores: scores,
-                                            holeTips: holeTips,
+                                            holeTips: completeTips,
                                             isPlanned: isPlanningMode
                                         )
                                         historyStore.save(round)
+                                        PuttingTipSession.shared.tipsByHole = [:]
                                         showSavedConfirmation = true
                                     }.foregroundColor(GolfIQBrand.accent)
                                 }
                                 Button("New Round") {
                                     scores = Array(repeating: 0, count: 18)
                                     holeTips = [:]
+                                    PuttingTipSession.shared.tipsByHole = [:]
                                     isPlanningMode = false
                                     mentalGame.resetRound()
                                 }.foregroundColor(GolfIQBrand.accent)
