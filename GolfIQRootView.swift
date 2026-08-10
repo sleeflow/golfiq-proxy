@@ -883,6 +883,7 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
 class WeatherService: ObservableObject {
     @Published var windSpeed: Int = 0
     @Published var windDirection: String = "Calm"
+    @Published var windCompass: String = ""
     @Published var isLoading = false
 
     func fetchWeather(lat: Double, lon: Double) async {
@@ -897,12 +898,19 @@ class WeatherService: ObservableObject {
                 await MainActor.run {
                     self.windSpeed = Int(speed)
                     self.windDirection = self.degreesToDirection(degrees: dir, speed: Int(speed))
+                    self.windCompass = Int(speed) == 0 ? "" : self.compassLetters(degrees: dir)
                     self.isLoading = false
                 }
             }
         } catch {
             await MainActor.run { self.isLoading = false }
         }
+    }
+
+    func compassLetters(degrees: Double) -> String {
+        let dirs = ["N","NE","E","SE","S","SW","W","NW"]
+        let index = Int((degrees + 22.5) / 45.0) % 8
+        return dirs[index]
     }
 
     func degreesToDirection(degrees: Double, speed: Int) -> String {
@@ -1486,7 +1494,7 @@ struct CaddyView: View {
                         if weatherService.windSpeed > 0 {
                             HStack(spacing: 4) {
                                 Image(systemName: "wind").font(.caption).foregroundColor(GolfIQBrand.accent)
-                                Text("\(weatherService.windSpeed) mph \(weatherService.windDirection)")
+                                Text("\(weatherService.windSpeed) mph \(weatherService.windCompass) \(weatherService.windDirection)")
                                     .font(.caption).foregroundColor(.secondary)
                             }
                         }
@@ -1547,7 +1555,7 @@ struct CaddyView: View {
                                 .font(.caption2).foregroundColor(.secondary)
                             Spacer()
                             Image(systemName: "wind").font(.caption2).foregroundColor(GolfIQBrand.accent)
-                            Text(weatherService.windSpeed == 0 ? "Calm" : "\(weatherService.windSpeed)mph \(weatherService.windDirection)")
+                            Text(weatherService.windSpeed == 0 ? "Calm" : "\(weatherService.windSpeed)mph \(weatherService.windCompass) \(weatherService.windDirection)")
                                 .font(.caption2).foregroundColor(.secondary)
                         }
 
