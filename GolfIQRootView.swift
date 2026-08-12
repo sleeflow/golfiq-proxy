@@ -915,17 +915,7 @@ class WeatherService: ObservableObject {
 
     func degreesToDirection(degrees: Double, speed: Int) -> String {
         if speed == 0 { return "Calm" }
-        let dirs = ["N","NE","E","SE","S","SW","W","NW"]
-        let index = Int((degrees + 22.5) / 45.0) % 8
-        switch dirs[index] {
-        case "N": return "Into Wind"
-        case "S": return "With Wind"
-        case "E": return "Left to Right"
-        case "W": return "Right to Left"
-        case "NE", "NW": return "Into Wind"
-        case "SE", "SW": return "With Wind"
-        default: return "Calm"
-        }
+        return compassLetters(degrees: degrees)
     }
 }
 
@@ -1494,7 +1484,7 @@ struct CaddyView: View {
                         if weatherService.windSpeed > 0 {
                             HStack(spacing: 4) {
                                 Image(systemName: "wind").font(.caption).foregroundColor(GolfIQBrand.accent)
-                                Text("\(weatherService.windSpeed) mph \(weatherService.windCompass) \(weatherService.windDirection)")
+                                Text("\(weatherService.windSpeed) mph \(weatherService.windDirection)")
                                     .font(.caption).foregroundColor(.secondary)
                             }
                         }
@@ -1555,7 +1545,7 @@ struct CaddyView: View {
                                 .font(.caption2).foregroundColor(.secondary)
                             Spacer()
                             Image(systemName: "wind").font(.caption2).foregroundColor(GolfIQBrand.accent)
-                            Text(weatherService.windSpeed == 0 ? "Calm" : "\(weatherService.windSpeed)mph \(weatherService.windCompass) \(weatherService.windDirection)")
+                            Text(weatherService.windSpeed == 0 ? "Calm" : "\(weatherService.windSpeed)mph \(weatherService.windDirection)")
                                 .font(.caption2).foregroundColor(.secondary)
                         }
 
@@ -1624,7 +1614,7 @@ struct CaddyView: View {
                             Slider(value: Binding(
                                 get: { Double(hole.distanceToPin) },
                                 set: { hole.distanceToPin = Int($0) }
-                            ), in: 10...250, step: 5)
+                            ), in: 10...300, step: 5)
                             .accentColor(GolfIQBrand.accent)
                         }
                         .padding(12)
@@ -2921,9 +2911,6 @@ struct ProfileView: View {
                 }
                 Section("Upgrades 2027") {
                     VStack(alignment: .leading, spacing: 8) {
-                        proFeatureRow("Worldwide Course Database", icon: "globe")
-                        proFeatureRow("GPS Distance to Pin", icon: "location.fill")
-                        proFeatureRow("Advanced Weather Intelligence", icon: "cloud.sun.fill")
                         proFeatureRow("Apple Watch Support", icon: "applewatch")
                     }
                     .padding(.vertical, 4)
