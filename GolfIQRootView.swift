@@ -166,10 +166,10 @@ class MentalGame: ObservableObject {
         return freshTip(from: pool)
     }
 
-    func preShotTip(lie: String, hazards: String, holeNumber: Int) -> MentalTip {
+    func preShotTip(lie: String, hazards: String, holeNumber: Int, isTeeShot: Bool = true) -> MentalTip {
         if hazards != "None" { return freshTip(from: MentalTipLibrary.pressureTips) }
         if lie == "Sand" || lie == "Rough" { return freshTip(from: MentalTipLibrary.recoveryTips) }
-        if holeNumber == 1 { return freshTip(from: MentalTipLibrary.startStrongTips) }
+        if holeNumber == 1 && isTeeShot { return freshTip(from: MentalTipLibrary.startStrongTips) }
         if holeNumber >= 16 { return freshTip(from: MentalTipLibrary.closingTips) }
         return freshTip(from: MentalTipLibrary.preShotTips)
     }
@@ -1143,7 +1143,9 @@ class CaddyService: ObservableObject {
     func getAdvice(hole: HoleData, player: PlayerProfile, course: GolfCourse?) async {
         await MainActor.run {
             isLoading = true; errorMessage = ""; advice = ""
-            preShotTip = mentalGame.preShotTip(lie: hole.lie, hazards: hole.hazards, holeNumber: hole.holeNumber)
+            let fullYardage = course?.holes.first(where: { $0.id == hole.holeNumber })?.yards ?? hole.distanceToPin
+            let isTeeShot = hole.distanceToPin >= (fullYardage - 15)
+            preShotTip = mentalGame.preShotTip(lie: hole.lie, hazards: hole.hazards, holeNumber: hole.holeNumber, isTeeShot: isTeeShot)
         }
         let prompt = buildPrompt(hole: hole, player: player, course: course)
         do {
