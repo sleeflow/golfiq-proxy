@@ -49,15 +49,106 @@ struct SplashView: View {
     }
 }
 
-struct GolfIQRootView: View {
-    @State private var showSplash = true
+// MARK: - Welcome Screen
+
+struct WelcomeView: View {
+    var onGetStarted: () -> Void
+    @State private var opacity = 0.0
+
     var body: some View {
         ZStack {
-            if showSplash { SplashView().transition(.opacity) }
-            else { ContentView().transition(.opacity) }
+            GolfIQBrand.primary.ignoresSafeArea()
+            VStack(spacing: 32) {
+                Spacer()
+
+                VStack(spacing: 12) {
+                    Image("GolfIQLogo")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 110, height: 110)
+                    Text("Meet your Little Buddy.")
+                        .font(.system(size: 26, weight: .bold, design: .serif))
+                        .foregroundColor(.white)
+                        .multilineTextAlignment(.center)
+                }
+
+                VStack(alignment: .leading, spacing: 20) {
+                    HStack(alignment: .top, spacing: 14) {
+                        Text("🏌️").font(.system(size: 28))
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Your AI Caddie")
+                                .font(.system(size: 17, weight: .semibold, design: .serif))
+                                .foregroundColor(.white)
+                            Text("Club advice built from your real bag.")
+                                .font(.system(size: 14))
+                                .foregroundColor(.white.opacity(0.7))
+                        }
+                    }
+                    HStack(alignment: .top, spacing: 14) {
+                        Text("🧠").font(.system(size: 28))
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Your Mental Game Coach")
+                                .font(.system(size: 17, weight: .semibold, design: .serif))
+                                .foregroundColor(.white)
+                            Text("The right mindset, shot by shot.")
+                                .font(.system(size: 14))
+                                .foregroundColor(.white.opacity(0.7))
+                        }
+                    }
+                }
+                .padding(.horizontal, 40)
+
+                Spacer()
+
+                VStack(spacing: 10) {
+                    Image(systemName: "location.fill")
+                        .font(.caption)
+                        .foregroundColor(GolfIQBrand.accent)
+                    Text("We'll ask for your location once, just to pull local wind conditions for your round.")
+                        .font(.caption)
+                        .foregroundColor(.white.opacity(0.6))
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 50)
+                }
+
+                Button(action: onGetStarted) {
+                    Text("Get Started")
+                        .font(.system(size: 17, weight: .semibold, design: .serif))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(GolfIQBrand.accent)
+                        .cornerRadius(14)
+                }
+                .padding(.horizontal, 40)
+                .padding(.bottom, 30)
+            }
+            .opacity(opacity)
         }
         .onAppear {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2.4) {
+            withAnimation(.easeOut(duration: 0.6)) { opacity = 1.0 }
+        }
+    }
+}
+
+struct GolfIQRootView: View {
+    @State private var showSplash = true
+    @State private var showWelcome = !UserDefaults.standard.bool(forKey: "has_seen_welcome")
+    var body: some View {
+        ZStack {
+            if showSplash {
+                SplashView().transition(.opacity)
+            } else if showWelcome {
+                WelcomeView(onGetStarted: {
+                    UserDefaults.standard.set(true, forKey: "has_seen_welcome")
+                    withAnimation(.easeInOut(duration: 0.5)) { showWelcome = false }
+                }).transition(.opacity)
+            } else {
+                ContentView().transition(.opacity)
+            }
+        }
+        .onAppear {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 6.5) {
                 withAnimation(.easeInOut(duration: 0.5)) { showSplash = false }
             }
         }
@@ -1218,7 +1309,7 @@ class CaddyService: ObservableObject {
         🏌️ CLUB: Name the exact club from the player's bag above that best fits the effective distance after adjusting for elevation (+/- 5-10 yards as noted above), wind, and lie, e.g. "7-Iron"
         🎯 AIM: Exact target, bail-out zone, and where to miss if the shot goes wrong — be specific (e.g. miss right, short is safe, avoid the left bunker)
         ✋ SHOT: Shape or trajectory and why it fits the conditions
-        ⚠️ AVOID: The one mistake that blows this hole up and how to prevent it
+        ⚠️ AVOID: The one mistake that blows THIS shot up and how to prevent it. Stay focused only on the shot happening right now — do not reference future shots, hole scoring outcomes (like "in two"), or hypothetical later situations, since that phrasing can read as if it's describing a different shot than the one in progress.
         """
     }
 
@@ -1465,6 +1556,7 @@ struct CaddyView: View {
     @ObservedObject var weatherService: WeatherService
     @StateObject private var caddyService = CaddyService()
     @State private var hole = HoleData()
+    @ObservedObject private var currentHole = CurrentHole.shared
     @State private var showSetup = false
     @State private var showCourseList = false
     @State private var showPuttingSelection = false
@@ -1540,15 +1632,10 @@ struct CaddyView: View {
                         }
 
                         HStack(spacing: 8) {
-                            Image(systemName: locationManager.location != nil ? "location.fill" : "location.slash")
-                                .font(.caption2)
-                                .foregroundColor(locationManager.location != nil ? GolfIQBrand.accent : .secondary)
-                            Text(locationManager.location != nil ? "GPS Active" : "GPS Unavailable")
-                                .font(.caption2).foregroundColor(.secondary)
-                            Spacer()
                             Image(systemName: "wind").font(.caption2).foregroundColor(GolfIQBrand.accent)
                             Text(weatherService.windSpeed == 0 ? "Calm" : "\(weatherService.windSpeed)mph \(weatherService.windDirection)")
                                 .font(.caption2).foregroundColor(.secondary)
+                            Spacer()
                         }
 
                         Divider()
@@ -1624,29 +1711,6 @@ struct CaddyView: View {
                         .cornerRadius(12)
                         .shadow(color: .black.opacity(0.07), radius: 4, x: 0, y: 2)
 
-                        // On the Green button — always visible
-                        Button(action: { showPuttingSelection = true }) {
-                            HStack {
-                                Text("🟢")
-                                    .font(.title3)
-                                Text("On the Green")
-                                    .font(.subheadline)
-                                    .fontWeight(.semibold)
-                                    .foregroundColor(.white)
-                                Spacer()
-                                Text("Get Putting Thought")
-                                    .font(.caption)
-                                    .foregroundColor(.white.opacity(0.8))
-                                Image(systemName: "chevron.right")
-                                    .font(.caption)
-                                    .foregroundColor(.white.opacity(0.8))
-                            }
-                            .padding(12)
-                            .background(Color.green)
-                            .cornerRadius(12)
-                            .shadow(color: .black.opacity(0.07), radius: 4, x: 0, y: 2)
-                        }
-
                         // Elevation quick tap — always visible
                         HStack(spacing: 0) {
                             Text("Elevation")
@@ -1672,31 +1736,52 @@ struct CaddyView: View {
                         .cornerRadius(12)
                         .shadow(color: .black.opacity(0.07), radius: 4, x: 0, y: 2)
 
-                        // Lie quick tap — shown after first caddie tap
-                        if !caddyService.advice.isEmpty {
-                            HStack(spacing: 0) {
-                                Text("Lie")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                                    .frame(width: 80, alignment: .leading)
-                                Spacer()
-                                HStack(spacing: 6) {
-                                    ForEach(["Fairway", "Rough", "Sand", "Fringe"], id: \.self) { lieOption in
-                                        Button(action: { hole.lie = lieOption }) {
-                                            Text(lieOption)
-                                                .font(.caption2)
-                                                .fontWeight(.semibold)
-                                                .foregroundColor(hole.lie == lieOption ? .white : GolfIQBrand.accent)
-                                                .padding(.horizontal, 8)
-                                                .padding(.vertical, 6)
-                                                .background(hole.lie == lieOption ? GolfIQBrand.accent : GolfIQBrand.accentSoft)
-                                                .cornerRadius(8)
-                                        }
+                        // Lie quick tap — always visible
+                        HStack(spacing: 0) {
+                            Text("Lie")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .frame(width: 80, alignment: .leading)
+                            Spacer()
+                            HStack(spacing: 6) {
+                                ForEach(["Fairway", "Rough", "Sand", "Fringe"], id: \.self) { lieOption in
+                                    Button(action: { hole.lie = lieOption }) {
+                                        Text(lieOption)
+                                            .font(.caption2)
+                                            .fontWeight(.semibold)
+                                            .foregroundColor(hole.lie == lieOption ? .white : GolfIQBrand.accent)
+                                            .padding(.horizontal, 8)
+                                            .padding(.vertical, 6)
+                                            .background(hole.lie == lieOption ? GolfIQBrand.accent : GolfIQBrand.accentSoft)
+                                            .cornerRadius(8)
                                     }
                                 }
                             }
+                        }
+                        .padding(12)
+                        .background(Color(.systemBackground))
+                        .cornerRadius(12)
+                        .shadow(color: .black.opacity(0.07), radius: 4, x: 0, y: 2)
+
+                        // On the Green button — always visible
+                        Button(action: { showPuttingSelection = true }) {
+                            HStack {
+                                Text("🟢")
+                                    .font(.title3)
+                                Text("On the Green")
+                                    .font(.subheadline)
+                                    .fontWeight(.semibold)
+                                    .foregroundColor(.white)
+                                Spacer()
+                                Text("Get Putting Thought")
+                                    .font(.caption)
+                                    .foregroundColor(.white.opacity(0.8))
+                                Image(systemName: "chevron.right")
+                                    .font(.caption)
+                                    .foregroundColor(.white.opacity(0.8))
+                            }
                             .padding(12)
-                            .background(Color(.systemBackground))
+                            .background(Color.green)
                             .cornerRadius(12)
                             .shadow(color: .black.opacity(0.07), radius: 4, x: 0, y: 2)
                         }
@@ -1713,6 +1798,7 @@ struct CaddyView: View {
                                 hole.hazards = "None"
                                 hole.wind = weatherService.windSpeed == 0 ? "Calm" : weatherService.windDirection
                                 hole.windSpeed = weatherService.windSpeed
+                                currentHole.number = hole.holeNumber
                                 if let course = selectedCourse,
                                    let h = course.holes.first(where: { $0.id == hole.holeNumber }) {
                                     hole.par = h.par
@@ -1802,6 +1888,9 @@ struct CaddyView: View {
                 let lat = locationManager.location?.coordinate.latitude ?? defaultLat
                 let lon = locationManager.location?.coordinate.longitude ?? defaultLon
                 Task { await weatherService.fetchWeather(lat: lat, lon: lon) }
+                // Always start from the shared current hole, so this tab can
+                // never show a stale hole number if the Round tab advanced it
+                hole.holeNumber = currentHole.number
                 // Sync hole yardage/par from the selected course right away,
                 // in case a course was already chosen before this screen appeared
                 if let course = selectedCourse,
@@ -1810,9 +1899,21 @@ struct CaddyView: View {
                     hole.distanceToPin = h.yards
                 }
             }
+            .onChange(of: currentHole.number) { _, newValue in
+                // If the Round tab advances the current hole while this tab
+                // isn't visible, catch up the moment we come back
+                guard hole.holeNumber != newValue else { return }
+                hole.holeNumber = newValue
+                if let course = selectedCourse,
+                   let h = course.holes.first(where: { $0.id == newValue }) {
+                    hole.par = h.par
+                    hole.distanceToPin = h.yards
+                }
+            }
             .onChange(of: selectedCourse?.id) { _, _ in
                 // When course changes, load hole 1 data automatically
                 hole.holeNumber = 1
+                currentHole.number = 1
                 if let course = selectedCourse,
                    let h = course.holes.first(where: { $0.id == 1 }) {
                     hole.par = h.par
@@ -1976,6 +2077,14 @@ struct SavedRound: Codable, Identifiable {
 
 // Shared across tabs so a putting tip picked on the Caddie Edge tab
 // can be included when a round is saved from the Round tab
+// Shared across tabs — the single source of truth for "which hole am I on,"
+// so the Caddie Edge tab and Round tab can never drift out of sync with
+// each other (which was causing putting tips to get filed under the wrong hole)
+class CurrentHole: ObservableObject {
+    static let shared = CurrentHole()
+    @Published var number: Int = 1
+}
+
 class PuttingTipSession: ObservableObject {
     static let shared = PuttingTipSession()
     @Published var tipsByHole: [Int: (label: String, quote: String)] = [:]
@@ -2286,6 +2395,7 @@ struct RoundView: View {
                                         if scores[i] > 0 {
                                             Button(action: {
                                                 let finalScore = scores[i]
+                                                CurrentHole.shared.number = i + 1
                                                 showTip(score: finalScore, par: pars[i], holeIndex: i)
                                             }) {
                                                 Text("Done")
@@ -2363,6 +2473,7 @@ struct RoundView: View {
                                     scores = Array(repeating: 0, count: 18)
                                     holeTips = [:]
                                     PuttingTipSession.shared.tipsByHole = [:]
+                                    CurrentHole.shared.number = 1
                                     isPlanningMode = false
                                     mentalGame.resetRound()
                                 }.foregroundColor(GolfIQBrand.accent)
@@ -2582,6 +2693,12 @@ struct AddCourseView: View {
         Array(repeating: (par: "4", yards: "", hcp: ""), count: 18)
     @State private var submitted = false
 
+    var isFormIncomplete: Bool {
+        courseName.isEmpty || courseCity.isEmpty ||
+        contactName.isEmpty || contactEmail.isEmpty ||
+        !contactEmail.contains("@") || !contactEmail.contains(".")
+    }
+
     var body: some View {
         NavigationView {
             Form {
@@ -2604,13 +2721,13 @@ struct AddCourseView: View {
                     HStack {
                         Text("Your Name")
                         Spacer()
-                        TextField("Optional", text: $contactName)
+                        TextField("Required", text: $contactName)
                             .multilineTextAlignment(.trailing)
                     }
                     HStack {
                         Text("Your Email")
                         Spacer()
-                        TextField("Optional", text: $contactEmail)
+                        TextField("Required", text: $contactEmail)
                             .multilineTextAlignment(.trailing)
                             .keyboardType(.emailAddress)
                     }
@@ -2658,10 +2775,10 @@ struct AddCourseView: View {
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 8)
-                        .background(courseName.isEmpty || courseCity.isEmpty ? Color.gray : GolfIQBrand.accent)
+                        .background(isFormIncomplete ? Color.gray : GolfIQBrand.accent)
                         .cornerRadius(10)
                     }
-                    .disabled(courseName.isEmpty || courseCity.isEmpty)
+                    .disabled(isFormIncomplete)
 
                     if submitted {
                         HStack {
