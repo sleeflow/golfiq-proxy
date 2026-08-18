@@ -1301,12 +1301,12 @@ class CaddyService: ObservableObject {
         HOLE \(hole.holeNumber) — Par \(hole.par):
         - Distance remaining to the pin for THIS shot: \(hole.distanceToPin) yards (this is the player's current distance for whatever shot they're about to hit right now — it could be their tee shot, or a much shorter approach/recovery shot after already playing earlier shots on this hole. A short number on a high-par hole is completely normal and expected — it does NOT mean an error, so don't second-guess or flag the yardage.)
         - Lie: \(hole.lie)
-        - Elevation: \(hole.elevation) shot — \(hole.elevation == "Uphill" ? "plays about 5-10 yards LONGER than the flat yardage" : hole.elevation == "Downhill" ? "plays about 5-10 yards SHORTER than the flat yardage" : "no adjustment needed")
+        - Elevation: \(hole.elevation) shot — \(hole.elevation == "Uphill" ? "plays about 3-7 yards LONGER than the flat yardage" : hole.elevation == "Downhill" ? "plays about 3-7 yards SHORTER than the flat yardage" : "no adjustment needed")
         - Wind: \(hole.wind)\(hole.windSpeed > 0 ? " at \(hole.windSpeed) mph" : "")
         - Hazards: \(hole.hazards)
 
         Respond with exactly these four items, 1-2 sentences each:
-        🏌️ CLUB: Name the exact club from the player's bag above that best fits the effective distance after adjusting for elevation (+/- 5-10 yards as noted above), wind, and lie, e.g. "7-Iron"
+        🏌️ CLUB: Name the exact club from the player's bag above that best fits the effective distance after adjusting for elevation (+/- 3-7 yards as noted above), wind, and lie, e.g. "7-Iron"
         🎯 AIM: Exact target, bail-out zone, and where to miss if the shot goes wrong — be specific (e.g. miss right, short is safe, avoid the left bunker)
         ✋ SHOT: Shape or trajectory and why it fits the conditions
         ⚠️ AVOID: The one mistake that blows THIS shot up and how to prevent it. Stay focused only on the shot happening right now — do not reference future shots, hole scoring outcomes (like "in two"), or hypothetical later situations, since that phrasing can read as if it's describing a different shot than the one in progress.
